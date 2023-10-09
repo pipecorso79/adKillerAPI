@@ -1,4 +1,5 @@
-from flask import Flask, request
+from flask import Flask, request, jsonify
+from flask_cors import CORS
 import tensorflow.keras as keras
 import pickle #Para exportar el modelo
 import numpy as np
@@ -6,6 +7,7 @@ import json
 import random
 
 app = Flask(__name__)
+CORS(app)
 
 @app.route('/')
 def hello_world():
@@ -13,20 +15,25 @@ def hello_world():
 
 @app.route('/analizar-audio', methods=['POST'])
 def analizar_audio():
-    # audio_file = request.files['archivo_audio']
-    print("Hola aaaaaa")
-    modelo = cargar_modelo()
-    ##modelo.summary()
+    try:
+        # audio_file = request.files['archivo_audio']
+        print("Hola aaaaaa")
+        modelo = cargar_modelo()
+        ##modelo.summary()
 
-    X_test, y_test = cargar_datos_test()
-    print("Estos son los datos de test")
-    print(X_test.shape)
-    print(y_test.shape)
-    print("Ahora hacemos una prediccion")
-    predecir_random(X_test, y_test, modelo)
-    # Aquí puedes agregar la lógica para analizar el archivo de audio
-    # y devolver los resultados en formato JSON
-    return {'campo': 'campo2'}
+        X_test, y_test = cargar_datos_test()
+        print("Estos son los datos de test")
+        print(X_test.shape)
+        print(y_test.shape)
+        print("Ahora hacemos una prediccion")
+        # Aquí puedes agregar la lógica para analizar el archivo de audio
+        # y devolver los resultados en formato JSON
+        resultado = predecir_random(X_test, y_test, modelo)
+        print(resultado)
+        print(jsonify({"resultado": resultado}))
+        return jsonify({"resultado": resultado})
+    except Exception as e:
+        return jsonify({"error": str(e)})
 
 def cargar_modelo():
     with open('audio_model_mejoras_10.pkl', 'rb') as archivo_pkl:
@@ -57,7 +64,7 @@ def predecir_random(X_test, y_test, model):
     size = X_test.shape[0]
     indice_aleatorio = random.randint(0, size - 1)
 
-    return predict(X_test[indice_aleatorio], y_test[indice_aleatorio], model)
+    return predict(X_test[indice_aleatorio], y_test[indice_aleatorio], model).tolist()[0]
 
 if __name__ == '__main__':
     app.run()
