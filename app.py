@@ -5,16 +5,65 @@ import pickle
 import numpy as np
 import tensorflow
 import json
+import os
 import random
+import math
+from pydub import AudioSegment
+# AudioSegment.ffmpeg = "C:\\FFMPEG_FILES_DIR\\ffmpeg\\bin\\ffmpeg.exe"
+# AudioSegment.converter = "C:\\FFMPEG_FILES_DIR\\ffmpeg\\bin\\ffmpeg.exe"
+import datetime
+import uuid
+import librosa
 
 app = Flask(__name__)
 CORS(app)
 
 def cargar_modelo():
-    with open('audio_model_mejoras_10.pkl', 'rb') as archivo_pkl:
+    with open('modelo_ver_5seg.pkl', 'rb') as archivo_pkl:
         modelo = pickle.load(archivo_pkl)
     archivo_pkl.close()
     return modelo
+
+def generate_unique_filename():
+    current_time = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    unique_id = str(uuid.uuid4()).split("-")[0]  # Obtiene el primer segmento del UUID
+    return f"audio_{current_time}_{unique_id}"
+
+def procesar_audio(audio_file, model, duracion_audio):
+    data = generar_mfcc(audio_file = audio_file, duracion_audio = duracion_audio)
+    X = data[np.newaxis, ...]
+    return model.predict(X)
+
+def generar_mfcc(audio_file, duracion_audio, n_mfcc = 13, n_fft = 2048, hop_length = 512, num_segmentos = 1, frecuencia_muestra = 22050):
+    num_de_muestras_por_audio = frecuencia_muestra * duracion_audio
+    data = {
+        "mfcc": []
+    }
+    num_de_muestras_por_segmento = int(num_de_muestras_por_audio / num_segmentos) 
+    num_de_vectores_mfcc_por_segmento = math.ceil(num_de_muestras_por_segmento / hop_length)
+    signal, sr = librosa.load(audio_file, sr=frecuencia_muestra)
+    for segmento in range(num_segmentos):
+        inicio_de_muestra = num_de_muestras_por_segmento * segmento 
+        fin_de_muestra = inicio_de_muestra + num_de_muestras_por_segmento
+        if(num_segmentos == 1):
+            mfcc = librosa.feature.mfcc(y=signal[:],
+                                    sr=sr,
+                                    n_fft = n_fft,
+                                    n_mfcc = n_mfcc,
+                                    hop_length = hop_length)
+            mfcc = mfcc.T
+            if len(mfcc) == num_de_vectores_mfcc_por_segmento:
+                data["mfcc"].append(mfcc.tolist())
+        elif(inicio_de_muestra < signal.size and fin_de_muestra < signal.size):
+            mfcc = librosa.feature.mfcc(y=signal[inicio_de_muestra: fin_de_muestra],
+                                    sr=sr,
+                                    n_fft = n_fft,
+                                    n_mfcc = n_mfcc,
+                                    hop_length = hop_length)
+            mfcc = mfcc.T
+            if len(mfcc) == num_de_vectores_mfcc_por_segmento and not has_zeroes(mfcc):
+                data["mfcc"].append(mfcc.tolist())
+    return data
 
 modelo = cargar_modelo()
 
@@ -30,18 +79,39 @@ def analizar_audio():
         audio_data = request.get_json()
 
         base64_string = audio_data["audio"]  # El campo que contiene la cadena base64 en tu JSON
+        #print("Data en string: \n{}".format(base64_string))
         audio_binary = base64.b64decode(base64_string)
+
+        output_file_webm = f"{generate_unique_filename()}.webm"
+        output_file_wav = f"{generate_unique_filename()}.wav"
+
+        print("Guardando el audio en webM...")
+        with open(output_file_webm, 'wb') as audio_file:
+            audio_file.write(audio_binary)
+
+        try:
+            print("Generando sound...\n")
+            sound = AudioSegment.from_file(output_file_webm, format="webm")#, codec="libopus")
+            print("Generando export wax... \n")
+            sound.export(output_file_wav, format="wav")
+        except Exception as e:
+            print(f"Error al convertir de WebM a WAV: {e}")
         # print("Objeto recibido!!")
         # print(audio_binary)
         # print("Fin del objeto...")
 
-        X_test, y_test = cargar_datos_test()
-        print("Prediciendo...")
-        resultado = predecir_random(X_test, y_test, modelo)
-        print("Prediccion: {} {}".format(
-            resultado,
-            "conversacion" if (resultado == 0) else "no conversacion"))
-        return jsonify({"resultado": resultado})
+        # X_test, y_test = cargar_datos_test()
+        # print("Prediciendo...")
+        # resultado = predecir_random(X_test, y_test, modelo)
+        # print("Prediccion: {} {}".format(
+        #     resultado,
+        #     "conversacion" if (resultado == 0) else "no conversacion"))
+        try:
+            resultado = procesar_audio(output_file_wav, modelo, 5)
+            return jsonify({"resultado": resultado})
+        except Exception as e:
+            print(f"Error al predecir: {e}")
+            return jsonify({"resultado": 10})
     except Exception as e:
         return jsonify({"error": str(e)})
 
